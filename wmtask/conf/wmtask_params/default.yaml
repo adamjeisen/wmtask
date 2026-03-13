@@ -1,0 +1,33 @@
+# save_dir: "/scratch2/weka/millerlab/eisenaj/ControlJacobians/WMTaskModels"
+save_dir: "/orcd/data/ekmiller/001/eisenaj/ControlJacobians/WMTaskModels"
+
+# task parameters
+fixation_time: 0.5
+stimuli_time: 0.5
+delay1_time: 0.75
+cue_time: 0.1
+delay2_time: 0.75
+response_time: 0.25
+
+num_stimuli: 4
+num_trials: 4096
+enforce_fixation: False
+input_dim: null
+
+# training parameters
+train_percent: 0.8
+batch_size: 32
+learning_rate: 5e-4
+max_epochs: 42
+
+# model parameters
+N1: 64
+N2: null
+hidden_dim: null
+tau: 0.05
+dt: 0.02
+eig_lower_bound: 1e-1
+
+random_state: 42
+
+init_mode: 'random'

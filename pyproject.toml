@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wmtask"
+version = "0.1.0"
+description = "Working memory selection task: biological RNN training, loading, and trajectory generation"
+requires-python = ">=3.12"
+dependencies = [
+    "torch>=2.0.0",
+    "lightning>=2.0.0",
+    "numpy",
+    "scikit-learn",
+    "hydra-core",
+    "omegaconf",
+    "wandb>=0.15.0",
+    "tqdm",
+]
+
+[project.scripts]
+wmtask-train = "wmtask.train:run_wmtask"
