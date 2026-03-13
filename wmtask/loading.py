@@ -66,6 +66,9 @@ def load_wmtask_model(project, name, model_to_load='final', save_dir=None):
         is an OmegaConf config dict.
     """
     api = wandb.Api()
+    # Support both "project" and "entity/project" formats
+    if "/" not in project:
+        project = f"chaotic-consciousness/{project}"
     runs = api.runs(project)
     run = [run for run in runs if run.name == name][0]
 
