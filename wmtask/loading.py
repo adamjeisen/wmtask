@@ -113,7 +113,7 @@ def load_wmtask_model(project, name, model_to_load='final', save_dir=None):
     if params_dict.get('N2') is None:
         params_dict['N2'] = params_dict['N1']
     params_dict['hidden_dim'] = params_dict['N1'] + params_dict['N2']
-    params_dict['input_dim'] = 2 * params_dict['num_stimuli'] + 2  # stimuli + context
+    params_dict['input_dim'] = params_dict['num_stimuli']  # BiologicalRNN internally doubles this
 
     params = OmegaConf.create(params_dict)
     params['save_dir'] = _resolve_save_dir(save_dir)
