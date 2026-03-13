@@ -1,26 +1,62 @@
 import os
+import re
 
 import torch
-import wandb
 from omegaconf import OmegaConf
 
 from .model import BiologicalRNN
 
 
-def _unwrap_wandb_config(obj):
-    """Recursively unwrap W&B API config dicts like {"value": x} -> x.
+# Default task parameters — matches conf/wmtask_params/default.yaml
+_DEFAULT_PARAMS = {
+    "fixation_time": 0.5,
+    "stimuli_time": 0.5,
+    "delay1_time": 0.75,
+    "cue_time": 0.1,
+    "delay2_time": 0.75,
+    "response_time": 0.25,
+    "num_stimuli": 4,
+    "num_trials": 4096,
+    "enforce_fixation": False,
+    "train_percent": 0.8,
+    "batch_size": 32,
+    "learning_rate": 5e-4,
+    "max_epochs": 42,
+    "N1": 64,
+    "N2": 64,
+    "tau": 0.05,
+    "dt": 0.02,
+    "eig_lower_bound": 0.1,
+    "random_state": 42,
+    "init_mode": "random",
+}
 
-    Implemented via an inner recursive function to avoid name resolution issues.
+
+def _parse_name_params(name):
+    """Parse key=value pairs from a run name like 'BiologicalRNN__k1_v1__k2_v2'.
+
+    Returns a dict of parsed values with automatic type coercion.
     """
-    def _fn(o):
-        if isinstance(o, dict):
-            if 'value' in o and all(k in {'value', 'desc', 'type'} for k in o.keys()):
-                return _fn(o['value'])
-            return {k: _fn(v) for k, v in o.items()}
-        if isinstance(o, (list, tuple)):
-            return type(o)(_fn(v) for v in o)
-        return o
-    return _fn(obj)
+    parsed = {}
+    # Split on __ and look for key_value patterns
+    parts = name.split("__")
+    for part in parts:
+        # Match patterns like "N1_64", "dt_0.02", "enforce_fixation_False"
+        match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)_([^_].*)$', part)
+        if match:
+            key, val_str = match.group(1), match.group(2)
+            # Type coercion
+            if val_str.lower() in ('true', 'false'):
+                parsed[key] = val_str.lower() == 'true'
+            else:
+                try:
+                    parsed[key] = int(val_str)
+                except ValueError:
+                    try:
+                        parsed[key] = float(val_str)
+                    except ValueError:
+                        parsed[key] = val_str
+    return parsed
 
 
 def _resolve_save_dir(save_dir=None):
@@ -51,11 +87,14 @@ def _resolve_save_dir(save_dir=None):
 
 
 def load_wmtask_model(project, name, model_to_load='final', save_dir=None):
-    """Load a trained WMTask BiologicalRNN model from W&B.
+    """Load a trained WMTask BiologicalRNN model from local checkpoints.
+
+    Params are constructed from defaults merged with values parsed from the
+    project and run name strings, so no W&B query is needed.
 
     Args:
-        project: W&B project name.
-        name: W&B run name.
+        project: Project directory name (e.g. 'WMSelectionTask__cue_time_0.1__...').
+        name: Run name (e.g. 'BiologicalRNN__N1_64__N2_64__tau_0.05__...').
         model_to_load: Which checkpoint to load. 'final' for the last epoch,
             'init' for the initial (untrained) model, or an int for a specific epoch.
         save_dir: Directory containing model checkpoints. If None, resolved
@@ -65,65 +104,63 @@ def load_wmtask_model(project, name, model_to_load='final', save_dir=None):
         Tuple of (model, params) where model is a BiologicalRNN and params
         is an OmegaConf config dict.
     """
-    api = wandb.Api()
-    # Support both "project" and "entity/project" formats
-    if "/" not in project:
-        project = f"chaotic-consciousness/{project}"
-    runs = api.runs(project)
-    run = [run for run in runs if run.name == name][0]
+    # Build params from defaults + values parsed from project/run names
+    params_dict = dict(_DEFAULT_PARAMS)
+    params_dict.update(_parse_name_params(project))
+    params_dict.update(_parse_name_params(name))
 
-    # Get run config, handling W&B's public API format which may wrap values.
-    params_dict = run.config
-    if isinstance(params_dict, str):
-        try:
-            import json
-            params_dict = json.loads(params_dict)
-        except Exception:
-            pass
-    params_dict = _unwrap_wandb_config(params_dict)
+    # Derive computed fields
+    if params_dict.get('N2') is None:
+        params_dict['N2'] = params_dict['N1']
+    params_dict['hidden_dim'] = params_dict['N1'] + params_dict['N2']
+    params_dict['input_dim'] = 2 * params_dict['num_stimuli'] + 2  # stimuli + context
+
     params = OmegaConf.create(params_dict)
-
     params['save_dir'] = _resolve_save_dir(save_dir)
 
     model_load_dir = os.path.join(params['save_dir'], project, name)
 
-    if 'enforce_fixation' not in params:
-        params['enforce_fixation'] = False
+    if not os.path.isdir(model_load_dir):
+        raise FileNotFoundError(
+            f"Model directory not found: {model_load_dir}\n"
+            f"Check that project='{project}' and name='{name}' match a directory under {params['save_dir']}"
+        )
 
     if model_to_load == 'final':
         model_to_load = params['max_epochs'] - 1
     elif model_to_load == 'init':
         pass
     elif isinstance(model_to_load, int):
-        model_to_load = model_to_load
+        pass
     else:
         raise ValueError(f"model_to_load must be 'final', 'init', or an integer, got {model_to_load}")
 
-    # LOAD MODEL
+    init_mode = params.get('init_mode', 'learned')
+
     if model_to_load == 'init':
         torch.manual_seed(params['random_state'])
-        if 'init_mode' in params.keys():
-            init_mode = params['init_mode']
-        else:
-            init_mode = 'learned'
-        model = BiologicalRNN(params['input_dim'], params['hidden_dim'], output_dim=params['num_stimuli'], dt=params['dt'], tau=params['tau'], enforce_fixation=params['enforce_fixation'], init_mode=init_mode)
+        model = BiologicalRNN(
+            params['input_dim'], params['hidden_dim'],
+            output_dim=params['num_stimuli'],
+            dt=params['dt'], tau=params['tau'],
+            enforce_fixation=params['enforce_fixation'],
+            init_mode=init_mode,
+        )
     else:
         filename = f"model-epoch={model_to_load}.ckpt"
-        if torch.cuda.is_available():
-            state_dict = torch.load(os.path.join(model_load_dir, filename), weights_only=False)['state_dict']
-        else:
-            state_dict = torch.load(os.path.join(model_load_dir, filename), weights_only=False, map_location='cpu')['state_dict']
+        filepath = os.path.join(model_load_dir, filename)
+        map_location = None if torch.cuda.is_available() else 'cpu'
+        state_dict = torch.load(filepath, weights_only=False, map_location=map_location)['state_dict']
+        state_dict = {k.split('.', 1)[1]: v for k, v in state_dict.items()}
 
-        state_dict = {k.split('.')[1]: v for k, v in state_dict.items()}
-        if 'init_mode' in params.keys():
-            init_mode = params['init_mode']
-        else:
-            init_mode = 'learned'
-
-        if 'enforce_fixation' in params.keys():
-            model = BiologicalRNN(params['input_dim'], params['hidden_dim'], output_dim=params['num_stimuli'], dt=params['dt'], tau=params['tau'], enforce_fixation=params['enforce_fixation'], init_mode=init_mode)
-        else:
-            model = BiologicalRNN(params['input_dim'], params['hidden_dim'], output_dim=params['num_stimuli'], dt=params['dt'], tau=params['tau'], init_mode=init_mode)
+        model = BiologicalRNN(
+            params['input_dim'], params['hidden_dim'],
+            output_dim=params['num_stimuli'],
+            dt=params['dt'], tau=params['tau'],
+            enforce_fixation=params['enforce_fixation'],
+            init_mode=init_mode,
+        )
         model.load_state_dict(state_dict)
         print(f"loaded wmtask RNN model checkpoint {model_to_load}")
+
     return model, params
