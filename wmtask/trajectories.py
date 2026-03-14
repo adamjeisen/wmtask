@@ -102,19 +102,20 @@ def load_wmtask_for_jacobianode(
     save_dir=None,
     verbose=False,
 ):
-    """Convenience wrapper returning (sol, dt) for JacobianODE's dataset_loader pattern.
+    """Convenience wrapper returning (eq, sol, dt) for JacobianODE's dataset_loader pattern.
 
     This function is designed to be called via Hydra's ``instantiate()`` from a
-    JacobianODE data config file. It returns the same format as
-    ``CustomDatasetLoader.__call__``.
+    JacobianODE data config file. It returns the WMTaskEq dynamics object along
+    with data, enabling analytical Jacobian (eq.rhs, eq.jac) analyses in
+    JacobianODE.
 
     Args:
         Same as ``make_wmtask_trajectories``.
 
     Returns:
-        Tuple of (sol, dt) where sol is a dict with 'values' key.
+        Tuple of (eq, sol, dt) where eq is WMTaskEq, sol is a dict with 'values' key.
     """
-    _, sol, dt = make_wmtask_trajectories(
+    eq, sol, dt = make_wmtask_trajectories(
         project=project,
         name=name,
         model_to_load=model_to_load,
@@ -123,4 +124,4 @@ def load_wmtask_for_jacobianode(
         save_dir=save_dir,
         verbose=verbose,
     )
-    return sol, dt
+    return eq, sol, dt
