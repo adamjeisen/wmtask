@@ -3,20 +3,39 @@ from torch import nn
 from tqdm.auto import tqdm
 
 
-def get_hiddens(model, dataloader_to_use, device='cpu', verbose=False):
+def get_hiddens(model, dataloader_to_use, device=None, verbose=False):
+    """Run `model` over `dataloader_to_use` and return hidden states.
+
+    Args:
+        model: A BiologicalRNN (or compatible) model.
+        dataloader_to_use: DataLoader yielding (input_seq, labels) batches.
+        device: Torch device to run on. If None, auto-selects 'cuda' when
+            available and falls back to 'cpu'. The returned tensor is always
+            on CPU.
+        verbose: Show a tqdm progress bar over the dataloader.
+
+    Returns:
+        Hidden state tensor of shape (n_trials, n_timepoints, hidden_dim) on CPU.
+    """
+    if device is None:
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = torch.device(device)
+
     hiddens_all = torch.zeros(dataloader_to_use.dataset.labels.shape[0], dataloader_to_use.dataset.total_t, model.hidden_dim)
     model = model.to(device)
     with torch.no_grad():
         batch_loc = 0
         for input_seq, labels in tqdm(dataloader_to_use, disable=not verbose):
-            hiddens = torch.zeros(input_seq.shape[0], input_seq.shape[1], model.hidden_dim)
+            input_seq = input_seq.to(device)
+            hiddens = torch.zeros(input_seq.shape[0], input_seq.shape[1], model.hidden_dim, device=device)
+            hidden = None
             for i in range(input_seq.shape[1]):
                 if i == 0:
-                    out, hidden = model(input_seq[:, [i]].to(device))
+                    out, hidden = model(input_seq[:, [i]])
                 else:
-                    out, hidden = model(input_seq[:, [i]].to(device), hidden)
-                hiddens[:, i] = hidden.cpu()
-            hiddens_all[batch_loc:batch_loc + input_seq.shape[0]] = hiddens
+                    out, hidden = model(input_seq[:, [i]], hidden)
+                hiddens[:, i] = hidden
+            hiddens_all[batch_loc:batch_loc + input_seq.shape[0]] = hiddens.cpu()
 
             batch_loc += input_seq.shape[0]
 

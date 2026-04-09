@@ -54,7 +54,7 @@ def generate_wmtask_data(params):
     return all_dataloader, train_dataloader, val_dataloader, test_dataloader
 
 
-def generate_model_trajectories(model, dataloader, params, verbose=False):
+def generate_model_trajectories(model, dataloader, params, verbose=False, device=None):
     """Extract hidden state trajectories from a model given a dataloader.
 
     Args:
@@ -62,9 +62,11 @@ def generate_model_trajectories(model, dataloader, params, verbose=False):
         dataloader: A DataLoader with WMSelectionDataset.
         params: Config dict with at least 'N1' and 'N2' keys.
         verbose: Whether to show progress bar.
+        device: Torch device to run on. If None, auto-selects 'cuda' when
+            available and falls back to 'cpu'.
 
     Returns:
         Hidden state tensor of shape (n_trials, n_timepoints, hidden_dim).
     """
-    hiddens = get_hiddens(model, dataloader, verbose=verbose)
+    hiddens = get_hiddens(model, dataloader, device=device, verbose=verbose)
     return hiddens
